@@ -54,9 +54,7 @@ I want to use clerk inside the entire working app of Metabase. To have the neces
                 "--middleware" "[vlaaad.reveal.nrepl/middleware cider.nrepl/cider-middleware]"]}
 
   :clerk
-  {:extra-deps {io.github.nextjournal/clerk {:mvn/version "RELEASE"}
-                forge/forge                 {:local/root "/Users/adam/dev/forge"}
-                svg-clj/svg-clj             {:local/root "/Users/adam/dev/svg-clj"}}}}}
+  {:extra-deps {io.github.nextjournal/clerk {:mvn/version "RELEASE"}}}}}
 #+end_src
 
 ** running
@@ -261,7 +259,8 @@ Here's a work in progress namespace for Clerk viewers that I can use with Metaba
 #+end_src
 
 * notebooks
+Some of my notebooks.
 
-[[./notebooks/metabasics.org][metabasics]]
-[[./notebooks/sso.org][sso]]
-[[./notebooks/query-processor.org][query-processor]]
+- [[./notebooks/metabasics.org][metabasics]]
+- [[./notebooks/sso.org][sso]]
+- [[./notebooks/query-processor.org][query-processor]]

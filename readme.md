@@ -81,9 +81,7 @@ of the Metabase dependencies, I\'ve got the following aliases in
                 "--middleware" "[vlaaad.reveal.nrepl/middleware cider.nrepl/cider-middleware]"]}
 
   :clerk
-  {:extra-deps {io.github.nextjournal/clerk {:mvn/version "RELEASE"}
-                forge/forge                 {:local/root "/Users/adam/dev/forge"}
-                svg-clj/svg-clj             {:local/root "/Users/adam/dev/svg-clj"}}}}}
+  {:extra-deps {io.github.nextjournal/clerk {:mvn/version "RELEASE"}}}}}
 ```
 
 ## running
@@ -131,5 +129,8 @@ notebooks folder, Clerk will eval and render that file!
 
 # notebooks
 
-[metabasics](./notebooks/metabasics.org) [sso](./notebooks/sso.org)
-[query-processor](./notebooks/query-processor.org)
+Some of my notebooks.
+
+-   [metabasics](./notebooks/metabasics.org)
+-   [sso](./notebooks/sso.org)
+-   [query-processor](./notebooks/query-processor.org)
