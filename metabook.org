@@ -1,0 +1,267 @@
+* metabook
+Adam's collection of notes, useful dev namespaces, and important lessons while working at and with Metabase 😁
+
+This project has a lose and evolving structure, but the basics are:
+- this org file contains the deps and clerk server notes and code to get things going.
+- other helpful functions and namespaces may be defined here as time goes on.
+- there is a list of notebooks here which link to the ~./notebooks~ folder. This is where specific project notebooks should go.
+- all useful sources are tangled into ~./src/metabook~, these can then be loaded by other notebooks.
+
+This might also be useful as a starting point for other Metabase devs to set up Clerk for themselves.
+
+* setup
+** prereqs
+Some basics for your dev setup should be handled outside of this project.
+
+- have your own gitignore in ~~/.config/git/ignore~ and include:
+  - .clerk/
+- clone this repository into ~metabase/local/src/nocommit/~
+- if you are writing in .org files, consider using an elisp function to auto-generate .md files from .org:
+  #+begin_src elisp
+  (defun export-md-on-save-org-mode-file ()
+    (let ((filename
+          (buffer-file-name)))
+      (when (and (string-match-p
+                  (regexp-quote ".org") (message "%s" (current-buffer)))
+                 (not (string-match-p
+                       (regexp-quote "[") (message "%s" (current-buffer)))))
+        (shell-command
+         (concat "pandoc -f org -t markdown -o " filename ".md " filename)))))
+
+  (add-hook 'after-save-hook 'export-md-on-save-org-mode-file)
+  #+end_src
+  - notice that this uses ~pandoc~, so that will need to be installed on your system. This is done because Org's .md exporter doesn't play nicely with Clerk at the moment (code blocks don't end up being recognized as blocks to run/syntax highlight).
+- set up your deps according to the next section.
+
+** deps
+I want to use clerk inside the entire working app of Metabase. To have the necessary deps load up with the Metabase source without changing any of the Metabase dependencies, I've got the following aliases in ~~./clojure/deps.edn~, which gets merged with every Clojure project 😎.
+
+#+begin_src clojure
+{:aliases
+ {:cider/nrepl
+  {:extra-deps {nrepl/nrepl       {:mvn/version #_ "RELEASE" "0.9.0"}
+                cider/cider-nrepl {:mvn/version #_ "RELEASE" "0.27.4"}}
+   :main-opts  ["-m" "nrepl.cmdline"
+                "--port" "54321"
+                "--middleware" "[cider.nrepl/cider-middleware]"]}
+
+  :reveal-cider
+  {:extra-deps {vlaaad/reveal     {:mvn/version "RELEASE"}
+                nrepl/nrepl       {:mvn/version "RELEASE"}
+                cider/cider-nrepl {:mvn/version "RELEASE"}}
+   :main-opts  ["-m" "nrepl.cmdline"
+                "--port" "54321"
+                "--middleware" "[vlaaad.reveal.nrepl/middleware cider.nrepl/cider-middleware]"]}
+
+  :clerk
+  {:extra-deps {io.github.nextjournal/clerk {:mvn/version "RELEASE"}
+                forge/forge                 {:local/root "/Users/adam/dev/forge"}
+                svg-clj/svg-clj             {:local/root "/Users/adam/dev/svg-clj"}}}}}
+#+end_src
+
+** running
+Base the run off of the ~metabuild~ bash function (borrowed from Dan Sutton). I've got the source shown below, and have it copied into my ~~/.zshrc~ file.
+
+#+begin_src bash
+metabuild () {
+    cd $MB_DIR
+    source ${MB_SCRATCH_DIR}/set-env.sh
+    print "DB: $MB_DB_CONNECTION_URI"
+    print 'clj -M:dev:ee:ee-dev:drivers:drivers-dev:reveal-cider:clerk'
+    print 'Connect to nrepl server at localhost:54321'
+    clj -M:dev:ee:ee-dev:drivers:drivers-dev:reveal-cider:clerk
+}
+#+end_src
+
+Then, in a separate terminal, so that if emacs crashes, we don't lose our running REPL, you can do:
+
+#+begin_src shell
+source ~/.zshrc
+metabuild
+
+#+end_src
+
+* Usage
+To use Clerk, you first have to start the server, which will then watch the files in ~metabase/local/src/nocommit/metabook/notebooks~. To run the Clerk server, load ~metabook.server~ and run:
+
+#+begin_src clojure
+(load-file "local/src/nocommit/metabook/src/metabook/server.clj")
+(metabook.server/server-start!)
+#+end_src
+
+Which will start a Clerk Server on Port 7891. You can edit the server code and change it up as you wish, of course.
+
+Now, any time you make a change to a ~.md~ or ~.clj~ file in the notebooks folder, Clerk will eval and render that file!
+
+* metabook.server :noexport:
+To have Clerk watch the notes:
+
+#+begin_src clojure :tangle ./src/metabook/server.clj
+(ns metabook.server
+  (:require [clojure.string :as str]
+            [metabase.util.files :as u.files]
+            [nextjournal.clerk :as clerk]))
+
+;; TODO: make this recursively load srcs
+;; TODO: make a better noload mechanism
+^::clerk/no-cache
+(defn load-local-src
+  []
+  (let [srcs (u.files/files-seq (u.files/get-path "local/src/nocommit/metabook/src/metabook"))
+        noload ["server"]
+        noload-pred (fn [string]
+                      (some true? ((fn [s] (map #(str/includes? s %) noload)) string)))]
+    (doseq [file (remove noload-pred srcs)]
+      (println "loading: " (.toString file))
+      (load-file (.toString file)))))
+
+(defn server-start! []
+  (clerk/serve! {:browse true
+                 :port 7891
+                 :watch-paths ["local/src/nocommit/metabook/notebooks"]}))
+
+(defn start!
+  []
+  (load-local-src)
+  (server-start!))
+
+#_(start!)
+
+#+end_src
+
+* metabook.util :noexport:
+Some utility functions for the metabook notes.
+#+begin_src clojure :tangle "./src/metabook/util.clj"
+(ns metabook.util
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [metabase.cmd.endpoint-dox :as endpoint-dox]
+            [metabase.util :as mu]
+            [metabase.test :as mt]
+            [nextjournal.clerk :as clerk]))
+
+(defn load-edn
+  "Load edn from an io/reader source (filename or io/resource)."
+  [source]
+  (try
+    (with-open [r (io/reader source)]
+      (edn/read (java.io.PushbackReader. r)))
+
+    (catch java.io.IOException e
+      (printf "Couldn't open '%s': %s\n" source (.getMessage e)))
+    (catch RuntimeException e
+      (printf "Error parsing edn file '%s': %s\n" source (.getMessage e)))))
+
+;; todo: not exactly secure
+(def credentials (load-edn "local/src/nocommit/metabook/notebooks/.secret.edn"))
+(def myself (mt/client credentials :get 200 "/user/current"))
+
+(defn- clean-specific-endpoint-data
+  [{:keys [doc endpoint-str]}]
+  (let [endpoint-str (last (re-matches #".*`([^\)]*)`" endpoint-str))
+        endpoint-segments (remove #{""} (str/split endpoint-str #"/"))]
+    {:endpoint-str endpoint-str
+     :method ((comp keyword str/trim str/lower-case first) endpoint-segments)
+     :segments (into [] (map-indexed #(if (str/starts-with? %2 ":")
+                                        (keyword (str/replace-first %2 #":" ""))
+                                        %2)
+                                     (drop 2 endpoint-segments)))}))
+
+(defn- clean-endpoint-data
+  [s]
+  (mapv clean-specific-endpoint-data s))
+
+(defn map-endpoints
+  []
+  (let [endpoint-map (-> (#'endpoint-dox/map-endpoints)
+                         (update-keys (comp #(str/replace % #" " "-") str/lower-case))
+                         (update-vals clean-endpoint-data))]
+    endpoint-map))
+
+(def endpoint-data (map-endpoints))
+
+(defn- find-endpoint-segments
+  [[endpoint & _ :as segments]]
+  (let [possible-segments (->> (get endpoint-data endpoint)
+                               (map :segments)
+                               (filter #(= (count segments) (count %)))
+                               set)
+        exact-match (first (filter #{segments} possible-segments))
+        compare-segments (fn [possible-segments]
+                           (mapv #(cond (= %1 %2) %1
+                                        (keyword? %2) (str %2)
+                                        :else :no-match) segments possible-segments))]
+    (or exact-match
+        (->> (map compare-segments possible-segments)
+             (remove #(seq (filter #{:no-match} %)))
+             first))))
+
+(defn api-req
+  [& args]
+  (let [[method args] (mu/optional keyword? args :get)
+        [url args] (mu/optional string? args)
+        segments (into [] (remove #{""} (str/split url #"/")))]
+    (with-meta (apply mt/client (concat [credentials method url] args))
+      {:endpoint (first segments)
+       :segments (find-endpoint-segments segments)
+       :method method
+       :args args})))
+
+#+end_src
+
+* metabook.viewers :noexport:
+Here's a work in progress namespace for Clerk viewers that I can use with Metabase stuff. I'm starting with some very simple API response viewing stuff. And it's not necessarily 'proper' yet either, just a POC to begin with.
+
+#+begin_src clojure :tangle "./src/metabook/viewers.clj"
+(ns metabook.viewers
+  (:require [clojure.string :as str]
+            [clojure.math.combinatorics :as combo]
+            [metabase.test :as mt]
+            [metabook.util :as mbu]
+            [nextjournal.clerk :as clerk]
+            [nextjournal.clerk.viewer :as clerk.viewer]))
+
+(defn- api-dispatch
+  [m]
+  (let [{:keys [method segments]} (meta m)]
+    (vec (concat [method] segments))))
+
+(defmulti api-table-for-clerk api-dispatch)
+(defmethod api-table-for-clerk :default
+  [response]
+  (cond
+    (map? response) {:head (keys response)
+                     :rows [(vals response)]}
+
+    (seq? response) {:head (keys (first response))
+                     :rows (map vals response)}))
+
+(defmethod api-table-for-clerk [:get "user"]
+  [response]
+  (let [keep-keys [:email :first_name :last_name :common_name :id]
+        data (map #(select-keys % keep-keys) (:data response))]
+    {:head (keys (first data))
+     :rows (map vals data)}))
+
+(defmethod api-table-for-clerk [:get "user" ":id"]
+  [response]
+  (let [keep-keys [:email :first_name :last_name :common_name :id]
+        data (select-keys response keep-keys)]
+    {:head (keys data)
+     :rows [(vals data)]}))
+
+(defmethod api-table-for-clerk [:get "user" "current"]
+  [response]
+  (let [keep-keys [:email :first_name :last_name :common_name :id]
+        data (select-keys response keep-keys)]
+    (clerk.viewer/code
+      {:head (keys data)
+       :rows [(vals data)]})))
+#+end_src
+
+* notebooks
+
+[[./notebooks/metabasics.org][metabasics]]
+[[./notebooks/sso.org][sso]]
+[[./notebooks/query-processor.org][query-processor]]
